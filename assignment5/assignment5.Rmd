@@ -1,0 +1,37 @@
+---
+title: "Assignment 5"
+author: "Kohl Kinning"
+output: 
+  html_notebook: 
+    toc: yes
+    toc_depth: 2
+---
+
+## de novo Transcriptome Assembly
+
+(1.) Use the process_shortreads program, which is part of the Stacks package, to clean your set of paired-end reads.
+
+```{bash}
+$ process_shortreads -1 SscoPE_R1.fastq -2 SscoPE_R2.fastq -i fastq -o Cleaned/ -c -q --adapter_mm 2 --adapter_1 AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC --adapter_2 AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT
+```
+
+(2.) Using UNIX commands , for example, summarize the distributions of read lengths (one for R1s, one for R2s) for the trimmed data. Plot these distributions in R.
+```{bash}
+$ awk 'NR % 4 == 2' SscoPE_R1.1.fq | awk '{print length}' |sort | uniq -c > R1_lengths.tx
+$ awk 'NR % 4 == 2' SscoPE_R2.2.fq | awk '{print length}' |sort | uniq -c > R2_lengths.tx
+```
+```{r}
+r1 = read.table("/Users/kohl/Documents/GradSchool/semester1/TopicsInGenomicAnalysis/Assignments/TopicsInGenomicAnalysis/assignment4/R1_lengths.txt")
+
+r2 = read.table("/Users/kohl/Documents/GradSchool/semester1/TopicsInGenomicAnalysis/Assignments/TopicsInGenomicAnalysis/assignment4/R2_lengths.txt")
+
+colnames(r1)[1:2] = c("counts", "lengths")
+colnames(r2)[1:2] = c("counts", "lengths")
+```
+
+```{r}
+plot(r1$counts~r1$lengths, log = "y", col = "magenta4", xlab = "lengths", ylab = "counts", main = "Trimmed Data Distributions")
+points(r2$counts~r2$lengths, col = "green3", pch =  6)
+```
+
+

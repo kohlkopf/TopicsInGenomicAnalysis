@@ -1,0 +1,179 @@
+---
+title: "Assignment 4: RNA-Seq Data Exploration"
+author: "Kohl Kinning"
+date: "8/23/2017"
+output: 
+  html_notebook: 
+    theme: cosmo
+    toc: yes
+---
+
+## What are we working with?
+
+(1.) Copy the following files into a working directory named `ass3/` on Talapas.  
+`/home/csmall/Bi623/PE_RNAseq_R1.fastq`
+`/home/csmall/Bi623/PE_RNAseq_R2.fastq`  
+  
+(2.) Determine the total number of pairs of reads in the files, and the proportion of reads that failed the Illumina software’s “Chastity” filter.  
+```{.bash}
+$ wc -l PE_RNAseq_R1.fastq | awk '{print $1/4}'
+10000000
+```
+```{.bash}
+$ wc -l PE_RNAseq_R2.fastq | awk '{print $1/4}'
+10000000
+```
+```{.bash}
+$ grep "[0-9]:Y" PE_RNAseq_R1.fastq | wc -l
+809609
+```
+```{.bash}
+$ grep "[0-9]:Y" PE_RNAseq_R2.fastq | wc -l
+809609
+```
+
+
+(3.) Extract and print a list of all of the barcodes represented in the R1 file, and their abundances, in order from most to least abundant. Include the total count of matches.
+
+- *What type of barcodes were used, and what length are they?*  
+    These are not inline indexes. They are index indexes and are six nucleotides long.
+- *Assuming the multiplexed libraries were supposedly combined as identical proportions, how many actual libraries were most likely submitted for sequencing?*  
+    It looks like there were 6 libraries multiplexed. After the sixth unique barcode, we see a sharp drop-off. At this point it's reasonable to assume (given the multiplexed libraries were supposedly combined as identical proportions) that the unique adapters after the dropoff are not really adapters and are the result of sequencing error.
+- *Did the person that prepped these actual libraries get even coverage across them?*  
+    There is not even coverage. 
+    
+```{.bash}
+$ grep -Po "[0-9]:[A-Z]:[0-9]:\K[A-Z]+" PE_RNAseq_R1.fastq | sort | uniq | wc -l
+2582
+```
+```{.bash}
+$ grep -P0 "[0-9]:[A-Z]:[0-9]:\K[A-Z]+" PE_RNAseq_R1.fastq | sort | uniq -c | sort -nr | head -20
+4018067 CGATGT
+1071176 TGACCT
+ 980546 CAGATT
+ 888640 GTCCGT
+ 862571 AGTTCT
+ 759964 CCGTCT
+  64436 CCGCCT
+  48509 CAGCTT
+  42142 CCGACT
+  39385 AGCTCT
+  38547 AGATCT
+  35690 CAGACT
+  34640 TAACCT
+  33312 CGCTGT
+  32614 GCCCGT
+  30782 TTACCT
+  29319 GTCCCT
+  27504 CGATCT
+  27113 CGACCT
+  27035 TCACCT
+```
+
+### Adapter Contamination
+
+(5.) Using `grep`, determine if there is forward adaptor sequence contamination, reverse adaptor sequence contamination, or both.  
+
+- *Try executing grep with different subsets of the adapter sequence. Do you see variation in the number of matches?*  
+    It seems that there are more adapter sequence contaminations near the end of the file.
+- *What could happen during the assembly process if the adapter sequence is present in the raw data?*  
+    The assembler would assemble on adapters, seeing them as similar sequences. The genome may include the adapters.
+
+```{.bash}
+# forward adaptor sequence contamination
+$ grep -P "AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC" PE_RNAseq_R1.fastq | wc -l
+9621
+$ grep -P "AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC" PE_RNAseq_R2.fastq | wc -l
+0
+```
+
+```{.bash}
+# reverse adaptor sequence contamination
+$ grep -P "AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT" PE_RNAseq_R1.fastq | wc -l
+0
+$ grep -P "AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT" PE_RNAseq_R2.fastq | wc -l
+9399
+```
+
+### rRNA Contamination
+(6.)  Build a database from Gacu_rRNA.fasta using gmap_build, then align the R1 reads to that database using gsnap.
+```{.bash}
+$ gmap_build -D Pipefish/ -d pipefish -k 15 Gacu_rRNA.fasta
+```
+```{.bash}
+$ gsnap -D Pipefish -d pipefish -B 4 -m 20 -t 8 -O --split-output gsnap_out -A sam PE_RNAseq_R1.fastq
+```  
+  
+Count the aligned reads by parsing the SAM output files, but remember not to count reads more than once if they align non-uniquely.
+```{.bash}
+$ grep -Po "HWI-\w+:\w+:\w+:\w+:\w+:\w+:\w+" gsnap_out.unpaired* | sort | uniq -c | wc -l
+65505
+```
+  
+Write a shell script that completes the steps above.
+```{.bash}
+#!/bin/bash
+
+for i in gsnap_out.unpaired*; do
+    echo "$i" 
+    grep -P "HWI-\w+:\w+:\w+:\w+:\w+:\w+:\w+" "$i" | sort | uniq -c | wc -l
+done
+```
+```{.bash}
+$ ./count.sh
+gsnap_out.unpaired_mult
+49659
+gsnap_out.unpaired_transloc
+0
+gsnap_out.unpaired_uniq
+15846
+```
+
+### Examine Homopolymers
+(7.) Find out approximately what proportion of the R1 reads contains a piece of a poly-A tail. Use `grep` to accomplish this. Assume that anything composed of at least 15 consecutive “A”s is a poly-A tail. 
+```{.bash}
+$ grep -P "A{15,}" PE_RNAseq_R1.fastq | wc -l
+39981
+$ grep -P "A{15,}" PE_RNAseq_R2.fastq | wc -l
+43633
+```  
+  
+(8.) Run a script version of the above solution to count occurrences of 15 or more consecutive “A”s, “C”s, “G”s, and “T”s and print their frequencies. Explain why the observed frequencies do or do not make sense. 
+
+- There are way more polyAs and polyTs than Cs and Gs in both files. Ts are complimentary to As. When the cDNA library was made, the polyA tails were complimented creating an abundance of sequences complimentary to polyAs. 
+
+```{.bash}
+#!/bin/bash
+
+for i in PE*; do
+    echo "$i"
+    for l in A C T G; do
+        echo "$l"
+        grep -Po "$l{15,}" "$i" | wc -l
+    done
+done
+```
+
+```{.bash}
+$ ./countACTG.sh 
+PE_RNAseq_R1.fastq
+A
+41311
+C
+4808
+T
+33795
+G
+2604
+PE_RNAseq_R2.fastq
+A
+45184
+C
+2510
+T
+39243
+G
+3483
+```
+
+
